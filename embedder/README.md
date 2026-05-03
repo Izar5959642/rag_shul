@@ -113,3 +113,93 @@ results = col.query(
     where={"type_text": "text+hagah"},
 )
 ```
+
+---
+
+## Vector Store (Strategy Pattern)
+
+`embedder/vector_store.py` introduces a Strategy pattern for swappable storage backends. The abstract `VectorStore` interface has two concrete implementations: `ChromaStore` (persists to ChromaDB) and `ManualStore` (persists to `.npy` + `.json` files). Both return results in the same ChromaDB-compatible dict format.
+
+---
+
+### `E5EmbeddingFunction`
+
+```python
+E5EmbeddingFunction(model_name=DEFAULT_MODEL, prefix="passage: ", batch_size=BATCH_SIZE)
+```
+
+Wraps the project's `intfloat/multilingual-e5-large` model. Prepends `prefix` to each input string before encoding and returns normalized 1024-dim vectors as `list[list[float]]`. The `__call__` signature follows the ChromaDB embedding function protocol (`input` is the exact parameter name).
+
+---
+
+### `VectorStore` interface
+
+```python
+class VectorStore(ABC):
+    def add_documents(self, documents: list[str], ids: list[str],
+                      metadatas: list[dict] | None = None,
+                      embeddings: list[list[float]] | None = None) -> None: ...
+    def search(self, query_vector, k: int = 5) -> dict: ...
+    def count(self) -> int: ...
+    def get_existing_ids(self) -> set[str]: ...
+```
+
+`add_documents`: if `embeddings` is provided the store uses them directly; otherwise it calls the embedding function to encode `documents`. `search` returns `{ids, documents, metadatas, distances}`.
+
+---
+
+### `ChromaStore`
+
+```python
+ChromaStore(chroma_dir: str | Path, collection_name: str, embedding_function: E5EmbeddingFunction)
+```
+
+Wraps a persistent ChromaDB collection (cosine similarity space). Use when you want ChromaDB's HNSW index and its query filtering features.
+
+---
+
+### `ManualStore`
+
+```python
+ManualStore(store_dir: str | Path, embedding_function: E5EmbeddingFunction)
+```
+
+Persists embeddings and documents to disk in two files:
+
+```
+<store_dir>/
+  embeddings.npy   — (N, 1024) float32, row-indexed
+  documents.json   — list of {id, document, metadata} in the same row order
+```
+
+Files are loaded lazily on first access and saved once at the end of `add_documents`. Already-stored IDs are skipped on each call, so the store grows incrementally without duplicates.
+
+---
+
+### Usage example
+
+```python
+from embedder import ChromaStore, ManualStore, E5EmbeddingFunction
+
+ef = E5EmbeddingFunction()
+
+# ChromaDB backend
+store = ChromaStore("embedder/chroma_db", "shulchan_arukh_seifs", ef)
+store.add_documents(documents, ids, metadatas, embeddings=vectors)
+results = store.search(query_vec, k=5)
+
+# File-based backend
+store = ManualStore("embedder/manual_store", ef)
+store.add_documents(documents, ids, metadatas, embeddings=vectors)
+results = store.search(query_vec, k=5)
+```
+
+`results` format (both stores):
+```python
+{
+    "ids":       [["text+hagah__siman_1_seif_1", ...]],
+    "documents": [["יתגבר כארי...", ...]],
+    "metadatas": [[{"siman": 1, "seif": 1, "type_text": "text+hagah"}, ...]],
+    "distances": [[0.12, ...]],   # 1 − cosine_similarity
+}
+```

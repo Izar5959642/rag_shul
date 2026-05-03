@@ -63,6 +63,12 @@ embeddings:
   enrich_separator: " | "
 
 
+vector_store:
+  type: chroma                        # chroma | manual
+  chroma_dir: "embedder/chroma_db"    # relative to project root
+  manual_dir: "embedder/manual_store" # relative to project root
+  collection: "shulchan_arukh_seifs"
+
 retrieval:
   chunk_file: *chunk_file
   top_k:          3     # chunks returned to the user / LLM
