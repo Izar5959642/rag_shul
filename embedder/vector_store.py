@@ -16,6 +16,9 @@ class E5EmbeddingFunction:
         self.prefix = prefix
         self.batch_size = batch_size
 
+    def name(self) -> str:
+        return "E5EmbeddingFunction"
+
     def __call__(self, input: list[str]) -> list[list[float]]:
         prefixed = [self.prefix + s for s in input]
         embeddings = _get_model(self.model_name).encode(
