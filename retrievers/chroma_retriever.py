@@ -13,13 +13,18 @@ Usage:
     r = get_retriever("chroma", type_text="text+hagah")
     results = r.retrieve("מה דין ציצית?", top_k=10)
 
-    # multiple variants — 10 results each
+    # multiple variants — 10 results each, flat list
     r = get_retriever("chroma", type_text=["text+hagah", "text_only"])
     results = r.retrieve("מה דין ציצית?", top_k=10)  # 20 total
 
     # all variants in the collection
     r = get_retriever("chroma", type_text=None)
     results = r.retrieve("מה דין ציצית?", top_k=10)  # 30 total (3 variants × 10)
+
+    # per-variant results — one correctly-ranked list per variant
+    r = get_retriever("chroma", type_text=["text+hagah", "text_only"])
+    results = r.retrieve_by_variant("מה דין ציצית?", top_k=10)
+    # {"text+hagah": [{rank:1, ...}, ...], "text_only": [{rank:1, ...}, ...]}
 """
 
 from pathlib import Path
@@ -97,6 +102,34 @@ class ChromaRetriever(BaseRetriever):
         else:
             self._variants = list(self._type_text)
 
+    def _query_variant(self, variant: str, vec, top_k: int) -> list[dict]:
+        """Run one ChromaDB query for a single variant and return ranked result dicts."""
+        raw = self._collection.query(
+            query_embeddings=[vec.tolist()],
+            n_results=top_k,
+            where={"type_text": variant},
+            include=["documents", "metadatas", "distances"],
+        )
+        ids       = raw["ids"][0]
+        documents = raw["documents"][0]
+        metadatas = raw["metadatas"][0]
+        distances = raw["distances"][0]
+        return [
+            {
+                "rank":         rank,
+                "chunk_id":     chunk_id,
+                "score":        round(1.0 - dist, 4),
+                "text":         doc,
+                "siman_parent": int(meta["siman"]),
+                "siman":        int(meta["siman"]),
+                "seif":         int(meta["seif"]),
+                "type_text":    meta["type_text"],
+            }
+            for rank, (chunk_id, doc, meta, dist) in enumerate(
+                zip(ids, documents, metadatas, distances), start=1
+            )
+        ]
+
     def retrieve(self, query: str, top_k: int = 10) -> list[dict]:
         """
         Retrieve top_k chunks per variant.
@@ -108,35 +141,22 @@ class ChromaRetriever(BaseRetriever):
             rank, chunk_id, score, text, siman_parent, siman, seif, type_text
         """
         self._load()
-
         vec = encode_query(query, model=self._model, prefix_query=self._prefix_query)
-
         all_results = []
         for variant in self._variants:
-            raw = self._collection.query(
-                query_embeddings=[vec.tolist()],
-                n_results=top_k,
-                where={"type_text": variant},
-                include=["documents", "metadatas", "distances"],
-            )
-
-            ids        = raw["ids"][0]
-            documents  = raw["documents"][0]
-            metadatas  = raw["metadatas"][0]
-            distances  = raw["distances"][0]
-
-            for rank, (chunk_id, doc, meta, dist) in enumerate(
-                zip(ids, documents, metadatas, distances), start=1
-            ):
-                all_results.append({
-                    "rank":         rank,
-                    "chunk_id":     chunk_id,
-                    "score":        round(1.0 - dist, 4),
-                    "text":         doc,
-                    "siman_parent": int(meta["siman"]),
-                    "siman":        int(meta["siman"]),
-                    "seif":         int(meta["seif"]),
-                    "type_text":    meta["type_text"],
-                })
-
+            all_results.extend(self._query_variant(variant, vec, top_k))
         return all_results
+
+    def retrieve_by_variant(self, query: str, top_k: int = 10) -> dict[str, list[dict]]:
+        """
+        Retrieve top_k chunks per variant, returned as a dict keyed by variant name.
+
+        Each variant's list is independently ranked (rank 1-based within the variant).
+        Use this instead of retrieve() when you need per-variant metrics.
+
+        Returns:
+            {variant_name: [{rank, chunk_id, score, text, siman_parent, siman, seif, type_text}, ...]}
+        """
+        self._load()
+        vec = encode_query(query, model=self._model, prefix_query=self._prefix_query)
+        return {variant: self._query_variant(variant, vec, top_k) for variant in self._variants}
