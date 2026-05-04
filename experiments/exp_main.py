@@ -8,7 +8,7 @@ All settings come from the YAML config (model, chunks file, top_k, etc.).
 To change anything, edit config/config.yaml or point CONFIG_PATH below
 at a different config file.
 """
-
+import pandas as pd  
 import logging
 import sys
 from pathlib import Path
@@ -90,9 +90,39 @@ def main():
 ]
 
     embed_main.main()
-    
-    
-    
+                                                                                
+                                                            
+    # Build retriever (all 3 variants)
+    retriever = get_retriever(
+        "chroma",
+        type_text=None,          # None = all variants in the collection
+        model=embed_params["model"],
+        prefix_query=embed_params["prefix_query"],
+    )
+
+    # Take first real question from eval CSV
+    queries_df = pd.read_csv(CSV_PATH)
+    row = queries_df.iloc[0]
+    test_query = row["question"]
+    gt_siman   = int(row["siman"])
+    gt_seif    = int(row["seif"])
+
+    print(f"\nQuery:        {test_query}")
+    print(f"Ground truth: siman={gt_siman}, seif={gt_seif}")
+
+    results = retriever.retrieve(test_query, top_k=5)
+
+    # Raw list
+    print("\n--- raw list (first 6 items) ---")
+    for r in results[:6]:
+        print(r)
+
+    # DataFrame — mark the correct answer
+    print("\n--- as DataFrame ---")
+    df = pd.DataFrame(results)
+    df["is_correct"] = (df["siman_parent"] == gt_siman) & (df["seif"] == gt_seif)
+    print(df[["rank", "score", "siman_parent", "seif", "type_text", "is_correct"]].head(10))    
+            
     print("Ready.\n")
 
     
