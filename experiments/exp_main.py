@@ -10,6 +10,7 @@ at a different config file.
 """
 
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -58,6 +59,10 @@ embed_params      = cfg["embeddings"]
 retrieval_params  = cfg["retrieval"]
 evaluation_params = cfg["evaluation"]
 
+# ChromaDB path — override via env variable (e.g. Colab: os.environ["CHROMA_DIR"] = "/content/drive/...")
+_chroma_env = os.environ.get("CHROMA_DIR")
+CHROMA_DIR  = Path(_chroma_env) if _chroma_env else (ROOT / "embedder" / "chroma_db")
+
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
@@ -73,29 +78,33 @@ def main():
     log.info(f"Model:      {embed_params['model']}")
     
     
-    # 1. Load JSON
-    schema = load_schema(DATA_FILE)
+    if CHROMA_DIR.exists():
+        print(f"ChromaDB found at {CHROMA_DIR} — skipping chunking & embedding.")
+    else:
+        # 1. Load JSON
+        schema = load_schema(DATA_FILE)
 
-    # 2. Build chunks
-    tables = build_tables(schema)
+        # 2. Build chunks
+        tables = build_tables(schema)
 
-    # 3. Save to file (chunks.json)
-    with open(CHUNKS_JSON, "w", encoding="utf-8") as f:
-        json.dump(tables, f, ensure_ascii=False, indent=2)
+        # 3. Save to file (chunks.json)
+        with open(CHUNKS_JSON, "w", encoding="utf-8") as f:
+            json.dump(tables, f, ensure_ascii=False, indent=2)
 
-    print("Chunks built and saved")
-    
-    sys.argv = [
-    "embed.py",
-    "--chunks", str(CHUNKS_JSON),
-    "--model", embed_params["model"],
-]
+        print("Chunks built and saved")
 
-    embed_main.main()
+        sys.argv = [
+            "embed.py",
+            "--chunks", str(CHUNKS_JSON),
+            "--model", embed_params["model"],
+        ]
+
+        embed_main.main()
 
     # 4. Evaluate the retriever
     print("=== Evaluation ===")
     df = pd.read_csv(CSV_PATH)
+    df = df.rename(columns={"שאלה": "question", "סימן": "siman", "סעיף": "seif"})
     required = {"question", "siman", "seif"}
     missing = required - set(df.columns)
     if missing:
@@ -106,7 +115,7 @@ def main():
         df = df.head(int(max_q))
 
     eval_type = evaluation_params["type"]
-    retriever = get_retriever("chroma", type_text=None)
+    retriever = get_retriever("chroma", type_text=None, chroma_dir=CHROMA_DIR)
     evaluator = get_evaluator(eval_type, **evaluation_params)
 
     result      = evaluator.evaluate(retriever, df)
