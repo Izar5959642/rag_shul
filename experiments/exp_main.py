@@ -11,9 +11,11 @@ at a different config file.
 
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 import yaml
 import json
+import pandas as pd
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -90,9 +92,34 @@ def main():
 ]
 
     embed_main.main()
-    
-    
-    
+
+    # 4. Evaluate the retriever
+    print("=== Evaluation ===")
+    df = pd.read_csv(CSV_PATH)
+    required = {"question", "siman", "seif"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Eval CSV missing required columns: {missing}")
+
+    max_q = evaluation_params.get("max_questions")
+    if max_q is not None:
+        df = df.head(int(max_q))
+
+    eval_type = evaluation_params["type"]
+    retriever = get_retriever("chroma", type_text=None)
+    evaluator = get_evaluator(eval_type, **evaluation_params)
+
+    result      = evaluator.evaluate(retriever, df)
+    report_text = evaluator.format_report(result, retriever_name=retriever.name)
+
+    print(report_text)
+
+    ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem    = f"eval_{evaluator.name}_{retriever.name}_{ts}"
+    out_dir = (HERE / "data" / "eval" / "results").resolve()
+    saved   = evaluator.save(result, report_text, out_dir, stem)
+    print(f"Saved: {saved['txt']}\n       {saved['json']}")
+
     print("Ready.\n")
 
     

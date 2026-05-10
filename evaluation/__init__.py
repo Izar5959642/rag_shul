@@ -11,12 +11,14 @@ To add a new evaluator:
 
 from .base import BaseEvaluator
 from .retrieval_evaluator import RetrievalEvaluator
+from .retrieval_evaluator_by_variant import RetrievalEvaluatorByVariant
 from .llm_evaluator import LLMEvaluator
 
 # Map of type → class
 REGISTRY: dict[str, type[BaseEvaluator]] = {
-    "retrieval": RetrievalEvaluator,
-    "llm_qa":    LLMEvaluator,
+    "retrieval":            RetrievalEvaluator,
+    "retrieval_by_variant": RetrievalEvaluatorByVariant,
+    "llm_qa":               LLMEvaluator,
 }
 
 

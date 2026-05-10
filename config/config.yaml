@@ -81,14 +81,12 @@ query:
 
 evaluation:
   #run_mode: *run_mode
-  # Evaluator type: 'retrieval' (Exists) or 'llm_qa' (future)
-  type: "retrieval"
+  # Evaluator type: 'retrieval_by_variant' (per-variant Recall@K + MRR) or 'llm_qa' (future)
+  type: "retrieval_by_variant"
 
-  # --- parameters for the retrieval evaluator ---
+  # --- parameters for the per-variant retrieval evaluator ---
   k_values:       [1, 3, 5, 10, 18, 30, 50]  # K values for the Recall report
-  target_k:       50                          # K to compare against the target
-  target_recall:  0.85                        # Recall target (0-1)
-  retrieve_k:     100                         # how many results to return (>= max(k_values))
+  retrieve_k:     100                         # how many results to return per variant (>= max(k_values))
   max_questions:  null                        # null = all questions; integer = only the first N
 
   # --- parameters for the llm_qa evaluator (future) ---
