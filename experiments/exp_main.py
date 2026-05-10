@@ -61,7 +61,8 @@ evaluation_params = cfg["evaluation"]
 
 # ChromaDB path — override via env variable (e.g. Colab: os.environ["CHROMA_DIR"] = "/content/drive/...")
 _chroma_env = os.environ.get("CHROMA_DIR")
-CHROMA_DIR  = Path(_chroma_env) if _chroma_env else (ROOT / "embedder" / "chroma_db")
+# CHROMA_DIR  = Path(_chroma_env) if _chroma_env else (ROOT / "embedder" / "chroma_db")
+CHROMA_DIR  = Path(_chroma_env) if _chroma_env else (ROOT / "embedder" / "chroma_db_ver_2")
 
 
 
@@ -95,8 +96,9 @@ def main():
 
         sys.argv = [
             "embed.py",
-            "--chunks", str(CHUNKS_JSON),
-            "--model", embed_params["model"],
+            "--chunks",     str(CHUNKS_JSON),
+            "--model",      embed_params["model"],
+            "--chroma-dir", str(CHROMA_DIR),
         ]
 
         embed_main.main()

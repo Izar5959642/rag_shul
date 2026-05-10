@@ -43,15 +43,19 @@ chunker:
     - hilchot_group
     # - siman_sign
   text_variants:        # list of named text-build configs; each produces one table in the output
-    - type_text: text+hagah
-      chunk_fields: [text, hagah]
-      siman_fields: []
-    - type_text: text_only
-      chunk_fields: [text]
-      siman_fields: []
-    - type_text: text+hilchot_group
-      chunk_fields: [text]
-      siman_fields: [hilchot_group]
+    - type_text: text+hagah+hilchot_group+siman_sign
+      chunk_fields: [text, hagah, hilchot_group, siman_sign]   
+    - type_text: hilchot_group+siman_sign+text+hagah
+      chunk_fields: [hilchot_group, siman_sign, text, hagah ]   
+    # - type_text: text+hagah
+    #   chunk_fields: [text, hagah]
+    #   siman_fields: []
+    # - type_text: text_only
+    #   chunk_fields: [text]
+    #   siman_fields: []
+    # - type_text: text+hilchot_group
+    #   chunk_fields: [text]
+    #   siman_fields: [hilchot_group]
 
 embeddings:
   #run_mode: *run_mode
