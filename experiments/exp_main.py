@@ -72,6 +72,11 @@ def main():
     log.info(f"Model:      {embed_params['model']}")
     
     
+    # 0. Prerequisite — enrich the RAG JSON with modern summaries and questions
+    #    Run this once (or after any update to the cache files) before exp_main.py:
+    #      python data/scripts/enrich_with_modern_summary.py
+    #    This adds 'modern_summary' and 'questions' fields to each seif in the JSON.
+
     # 1. Load JSON
     schema = load_schema(DATA_FILE)
 
@@ -104,8 +109,13 @@ def main():
     log.info(f"Loaded {len(queries_df)} evaluation questions from JSON")
 
     # 5. Evaluate modern_summary retriever
+    eval_type = evaluation_params.pop("type")
+    max_q     = evaluation_params.pop("max_questions", None)
+    if max_q:
+        queries_df = queries_df.head(max_q)
+        log.info(f"Limiting evaluation to {max_q} questions (max_questions)")
     retriever  = get_retriever("chroma", type_text="modern_summary")
-    evaluator  = get_evaluator(**evaluation_params)
+    evaluator  = get_evaluator(eval_type, **evaluation_params)
     result     = evaluator.evaluate(retriever, queries_df)
     report     = evaluator.format_report(result, retriever_name="chroma/modern_summary")
     print("\n" + report)
