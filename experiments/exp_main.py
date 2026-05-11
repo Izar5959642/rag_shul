@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 import yaml
 import json
+import pandas as pd
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -90,9 +91,25 @@ def main():
 ]
 
     embed_main.main()
-    
-    
-    
+
+    # 4. Build evaluation queries from questions embedded in the JSON
+    log.info("Building evaluation queries from JSON questions...")
+    rows = []
+    for siman_obj in schema["simanim"]:
+        siman_num = siman_obj["siman"]
+        for seif_obj in siman_obj["seifim"]:
+            for q in seif_obj.get("questions", []):
+                rows.append({"question": q, "siman": siman_num})
+    queries_df = pd.DataFrame(rows)
+    log.info(f"Loaded {len(queries_df)} evaluation questions from JSON")
+
+    # 5. Evaluate modern_summary retriever
+    retriever  = get_retriever("chroma", type_text="modern_summary")
+    evaluator  = get_evaluator(**evaluation_params)
+    result     = evaluator.evaluate(retriever, queries_df)
+    report     = evaluator.format_report(result, retriever_name="chroma/modern_summary")
+    print("\n" + report)
+
     print("Ready.\n")
 
     
