@@ -48,7 +48,7 @@ logging.basicConfig(
 log = logging.getLogger("main")
 
 # Paths (resolved against this file's directory)
-DATA_FILE      = (HERE / cfg["paths"]["data_file"]).resolve()
+DATA_FILE      = (HERE / cfg["paths"]["data_file_with_breadcrumb"]).resolve()
 CSV_PATH       = (HERE / cfg["paths"]["csv_path"]).resolve()
 CHUNKS_JSON    = (HERE / cfg["paths"]["chunks_json"]).resolve()
 EMBEDDINGS_NPY = (HERE / cfg["paths"]["embeddings_file"]).resolve()

@@ -21,8 +21,8 @@ rebuild: &rebuild false
 log_level: INFO   # DEBUG / INFO / WARNING / ERROR / CRITICAL
 
 paths:
-
-  data_file: "data/processed/shulchan_aruch_rag.json"
+  data_file_without_additional_breadcrumb: "data/processed/shulchan_aruch_rag.json"
+  data_file_with_breadcrumb: data/processed/shulchan_aruch_rag_with_breadcrumb.json
   chunks_json: &chunk_file "data/chunks.json"
   embeddings_file:  &embeddings_file "data/embeddings.npy"
   csv_path: "data/eval/sa_eval.csv" # benchmark questions (real CSV)
