@@ -93,10 +93,20 @@ class ChromaRetriever(BaseRetriever):
         self._collection = client.get_collection(self._collection_name)
 
         if self._type_text is None:
-            result = self._collection.get(include=["metadatas"])
-            self._variants = sorted(
-                {m["type_text"] for m in result["metadatas"] if "type_text" in m}
-            )
+            # Paginate to avoid SQLite "too many SQL variables" on large collections.
+            # ChromaDB's get() builds a single SQL query per call; with ~80k+ records
+            # we exceed SQLite's default ~32k parameter limit. Batches of 5000 stay
+            # well below the cap regardless of how the backend constructs the query.
+            all_variants: set[str] = set()
+            offset, batch = 0, 5000
+            while True:
+                chunk = self._collection.get(include=["metadatas"], limit=batch, offset=offset)
+                metadatas = chunk["metadatas"]
+                if not metadatas:
+                    break
+                all_variants.update(m["type_text"] for m in metadatas if "type_text" in m)
+                offset += batch
+            self._variants = sorted(all_variants)
         elif isinstance(self._type_text, str):
             self._variants = [self._type_text]
         else:
