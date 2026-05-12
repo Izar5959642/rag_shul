@@ -216,6 +216,8 @@ The retriever loads lazily — the embedding model and ChromaDB client are initi
 
 **Metrics:** Recall@K, MRR (computed per-question against the correct siman)
 
+**`max_questions`** (config) — limits the number of questions evaluated. Set to an integer (e.g. `100`) for a quick smoke-test; `null` runs all questions.
+
 ```python
 from evaluation import get_evaluator
 from retrievers import get_retriever
@@ -252,6 +254,7 @@ retrieval:
 evaluation:
   k_values: [1, 3, 5, 10]
   target_recall: 0.8
+  max_questions: null   # null = all questions; integer = limit for quick smoke-test
 ```
 
 ---
