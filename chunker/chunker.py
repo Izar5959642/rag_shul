@@ -133,6 +133,24 @@ def build_tables(schema: dict, variants: list[dict] | None = None) -> list[dict]
     return tables
 
 
+def run(
+    data_file: str | Path,
+    chunks_json: str | Path,
+    variants: list[dict] | None = None,
+) -> None:
+    """End-to-end chunker entry point: load schema → build tables → save chunks_json."""
+    data_file   = Path(data_file)
+    chunks_json = Path(chunks_json)
+    print(f"  Loading schema from {data_file.name}...")
+    schema = load_schema(data_file)
+    print("  Building tables...")
+    tables = build_tables(schema, variants=variants)
+    chunks_json.parent.mkdir(parents=True, exist_ok=True)
+    with open(chunks_json, "w", encoding="utf-8") as f:
+        json.dump(tables, f, ensure_ascii=False, indent=2)
+    print(f"  Chunks saved → {chunks_json}  ({len(tables)} tables)")
+
+
 _DISPATCH = {
     "seif":           _build_seif_chunks,
     "siman":          _build_siman_chunks,

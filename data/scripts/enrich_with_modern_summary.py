@@ -40,23 +40,13 @@ DEFAULT_QUESTIONS = _DATA / "seif_questions_gpt_cache.json"
 DEFAULT_OUTPUT    = DEFAULT_RAG                  # overwrite in-place by default
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Enrich RAG JSON with modern summaries and questions")
-    p.add_argument("--rag",       default=DEFAULT_RAG,       help="Path to shulchan_aruch_rag.json")
-    p.add_argument("--summaries", default=DEFAULT_SUMMARIES, help="Path to seif_modern_summary_cache.json")
-    p.add_argument("--questions", default=DEFAULT_QUESTIONS, help="Path to seif_questions_gpt_cache.json")
-    p.add_argument("--output",    default=DEFAULT_OUTPUT,    help="Output path (default: overwrite --rag)")
-    return p.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-
-    rag_path       = Path(args.rag)
-    summaries_path = Path(args.summaries)
-    questions_path = Path(args.questions)
-    output_path    = Path(args.output)
-
+def process(
+    rag_path: Path,
+    summaries_path: Path,
+    questions_path: Path,
+    output_path: Path,
+) -> None:
+    """Enrich RAG JSON in-place with modern_summary and questions fields from cache files."""
     print(f"Loading RAG JSON:   {rag_path}")
     with open(rag_path, encoding="utf-8") as f:
         rag = json.load(f)
@@ -93,6 +83,25 @@ def main() -> None:
         json.dump(rag, f, ensure_ascii=False, indent=2)
 
     print("Done.")
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Enrich RAG JSON with modern summaries and questions")
+    p.add_argument("--rag",       default=DEFAULT_RAG,       help="Path to shulchan_aruch_rag.json")
+    p.add_argument("--summaries", default=DEFAULT_SUMMARIES, help="Path to seif_modern_summary_cache.json")
+    p.add_argument("--questions", default=DEFAULT_QUESTIONS, help="Path to seif_questions_gpt_cache.json")
+    p.add_argument("--output",    default=DEFAULT_OUTPUT,    help="Output path (default: overwrite --rag)")
+    return p.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    process(
+        rag_path=Path(args.rag),
+        summaries_path=Path(args.summaries),
+        questions_path=Path(args.questions),
+        output_path=Path(args.output),
+    )
 
 
 if __name__ == "__main__":

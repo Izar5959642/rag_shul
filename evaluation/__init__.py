@@ -7,6 +7,9 @@ To add a new evaluator:
     1. Create a new file in evaluation/  (e.g. my_evaluator.py)
     2. Add an import and a REGISTRY entry below
     3. Set `evaluation.type: my_evaluator` in exp_config.yaml
+
+End-to-end orchestration lives in evaluation/runner.py and is re-exported as
+`run` so callers can do `from evaluation import run`.
 """
 
 from .base import BaseEvaluator
@@ -37,3 +40,7 @@ def get_evaluator(eval_type: str, **kwargs) -> BaseEvaluator:
 
 def list_evaluators() -> list[str]:
     return list(REGISTRY.keys())
+
+
+# Re-export end-to-end runner so callers can `from evaluation import run`
+from .runner import run  # noqa: E402  (registry must be defined before runner imports it)

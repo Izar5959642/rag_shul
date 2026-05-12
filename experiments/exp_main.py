@@ -1,307 +1,160 @@
 """
-main.py — RAG app template (YAML config)
-========================================
-Loads all pipeline settings from config/config.yaml and runs an
-interactive query loop over the Shulchan Arukh corpus.
+exp_main.py — RAG pipeline with incremental skip logic
+=======================================================
+Runs only the stages whose output artifacts are missing.
 
-All settings come from the YAML config (model, chunks file, top_k, etc.).
-To change anything, edit config/config.yaml or point CONFIG_PATH below
-at a different config file.
+Stage 0 — Data generation  → data/processed/shulchan_aruch_rag_with_breadcrumb.json
+Stage 1 — Chunking         → data/chunks.json
+Stage 2 — Embedding        → embedder/chroma_db_ver_2/
+Stage 3 — Eval + Retrieval → data/eval/results/  (always runs)
+
+Set  rebuild: true  in config/config.yaml to delete all artifacts and rerun from scratch.
 """
 
 import logging
 import os
+import shutil
 import sys
-from datetime import datetime
 from pathlib import Path
+
 import yaml
-import json
-import pandas as pd
 
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from chunker.chunker import load_schema, build_tables
-from embedder import embed as embed_main
-from retrievers import get_retriever
-from evaluation import get_evaluator
-
-# ─── Load config ──────────────────────────────────────────────────────────────
-
-#HERE        = Path(__file__).parent
-#CONFIG_PATH = HERE / "config" / "config.yaml"
 ROOT = Path(__file__).resolve().parent.parent
-HERE = ROOT
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "data" / "scripts"))
+
+from build_shulchan_aruch_rag import process_file as _build_rag
+from enrich_with_modern_summary import process as _enrich_rag
+from add_breadcrumb_to_json import process as _add_breadcrumb
+
+from chunker.chunker import run as _run_chunker
+from embedder.embed import run as _run_embed
+from retrievers import get_retriever
+from evaluation import run as _run_evaluation
+
+# ─── Config ───────────────────────────────────────────────────────────────────
+
 CONFIG_PATH = ROOT / "config" / "config.yaml"
 
 with open(CONFIG_PATH, encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
-print("CONFIG_PATH:", CONFIG_PATH)
-print("retrieval from yaml:", cfg["retrieval"])
 
-# Logging
 logging.basicConfig(
     level=getattr(logging, cfg.get("log_level", "INFO").upper()),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-log = logging.getLogger("main")
+log = logging.getLogger("exp_main")
 
-# Paths (resolved against this file's directory)
-DATA_FILE      = (HERE / cfg["paths"]["data_file_with_breadcrumb"]).resolve()
-CSV_PATH       = (HERE / cfg["paths"]["csv_path"]).resolve()
-CHUNKS_JSON    = (HERE / cfg["paths"]["chunks_json"]).resolve()
-EMBEDDINGS_NPY = (HERE / cfg["paths"]["embeddings_file"]).resolve()
+# ─── Paths (all from config.yaml) ─────────────────────────────────────────────
+
+paths = cfg["paths"]
+
+def _p(key: str) -> Path:
+    return (ROOT / paths[key]).resolve()
+
+# Stage 0 — data generation
+SOURCE_TXT     = _p("source_txt")
+HEADINGS_TXT   = _p("headings_txt")
+SUMMARIES_JSON = _p("summaries_cache")
+QUESTIONS_JSON = _p("questions_cache")
+DATA_RAW       = _p("data_file_without_additional_breadcrumb")
+DATA_FILE      = _p("data_file_with_breadcrumb")
+
+# Stage 1 — chunking
+CHUNKS_JSON = _p("chunks_json")
+
+# Stage 2 — embedding (env CHROMA_DIR overrides config)
+_chroma_env = os.environ.get("CHROMA_DIR")
+CHROMA_DIR  = Path(_chroma_env) if _chroma_env else _p("chroma_dir")
+
+# Stage 3 — evaluation
+CSV_PATH        = _p("csv_path")
+EVAL_RESULTS_DIR = _p("eval_results_dir")
 
 # Per-stage param dicts
 chunker_params    = cfg["chunker"]
 embed_params      = cfg["embeddings"]
-retrieval_params  = cfg["retrieval"]
 evaluation_params = cfg["evaluation"]
 
-# ChromaDB path — override via env variable (e.g. Colab: os.environ["CHROMA_DIR"] = "/content/drive/...")
-_chroma_env = os.environ.get("CHROMA_DIR")
-# CHROMA_DIR  = Path(_chroma_env) if _chroma_env else (ROOT / "embedder" / "chroma_db")
-CHROMA_DIR  = Path(_chroma_env) if _chroma_env else (ROOT / "embedder" / "chroma_db_ver_2")
+# ─── Stage functions ──────────────────────────────────────────────────────────
 
+def _build_data_stage() -> None:
+    print("=== Stage 0: Data generation ===")
+    # 1. raw build:   SOURCE_TXT  → DATA_RAW         (DATA_RAW stays untouched after this)
+    _build_rag(SOURCE_TXT, DATA_RAW)
+    # 2. enrichment:  DATA_RAW + caches → DATA_FILE  (writes a new file, NOT in-place)
+    _enrich_rag(DATA_RAW, SUMMARIES_JSON, QUESTIONS_JSON, DATA_FILE)
+    # 3. breadcrumb:  DATA_FILE + headings → DATA_FILE  (overwrites with breadcrumb fields)
+    _add_breadcrumb(DATA_FILE, HEADINGS_TXT, DATA_FILE)
+
+
+def _build_chunks_stage() -> None:
+    print("=== Stage 1: Chunking ===")
+    _run_chunker(
+        data_file=DATA_FILE,
+        chunks_json=CHUNKS_JSON,
+        variants=chunker_params.get("text_variants"),
+    )
+
+
+def _build_embed_stage() -> None:
+    print("=== Stage 2: Embedding ===")
+    _run_embed(
+        chunks_json=CHUNKS_JSON,
+        chroma_dir=CHROMA_DIR,
+        model=embed_params["model"],
+        batch_size=embed_params.get("batch_size", 32),
+    )
+
+
+def _run_eval() -> None:
+    print("=== Stage 3: Evaluation ===")
+    retriever = get_retriever("chroma", type_text=None, chroma_dir=CHROMA_DIR)
+    _run_evaluation(
+        retriever=retriever,
+        csv_path=CSV_PATH,
+        output_dir=EVAL_RESULTS_DIR,
+        eval_params=evaluation_params,
+    )
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
-def main():
-    
-    
-    log.info(f"Config:     {CONFIG_PATH}")
-    log.info(f"Data file:  {DATA_FILE}")
-    log.info(f"Chunks:     {CHUNKS_JSON}")
-    log.info(f"Embeddings: {EMBEDDINGS_NPY}")
-    log.info(f"Eval CSV:   {CSV_PATH}")
-    log.info(f"Model:      {embed_params['model']}")
-    
-    
-    if CHROMA_DIR.exists():
-        print(f"ChromaDB found at {CHROMA_DIR} — skipping chunking & embedding.")
+def main() -> None:
+    log.info(f"Config:    {CONFIG_PATH}")
+    log.info(f"Data file: {DATA_FILE}")
+    log.info(f"Chunks:    {CHUNKS_JSON}")
+    log.info(f"ChromaDB:  {CHROMA_DIR}")
+    log.info(f"Eval CSV:  {CSV_PATH}")
+
+    rebuild = cfg.get("rebuild", False)
+    if rebuild:
+        print("rebuild=true — removing intermediate files...")
+        for p in [DATA_FILE, CHUNKS_JSON]:
+            if p.exists():
+                p.unlink()
+                print(f"  Deleted {p}")
+        if CHROMA_DIR.exists():
+            shutil.rmtree(CHROMA_DIR)
+            print(f"  Deleted {CHROMA_DIR}")
+
+    if not DATA_FILE.exists():
+        _build_data_stage()
     else:
-        # 1. Load JSON
-        schema = load_schema(DATA_FILE)
+        print(f"Data file found at {DATA_FILE} — skipping data generation.")
 
-        # 2. Build chunks
-        tables = build_tables(schema)
+    if not CHUNKS_JSON.exists():
+        _build_chunks_stage()
+    else:
+        print(f"Chunks found at {CHUNKS_JSON} — skipping chunking.")
 
-        # 3. Save to file (chunks.json)
-        with open(CHUNKS_JSON, "w", encoding="utf-8") as f:
-            json.dump(tables, f, ensure_ascii=False, indent=2)
+    # Always enter the embed stage — run() does fine-grained per-variant skipping
+    # via get_existing_type_texts(), which also covers the "added a new variant" case.
+    _build_embed_stage()
 
-        print("Chunks built and saved")
-
-        sys.argv = [
-            "embed.py",
-            "--chunks",     str(CHUNKS_JSON),
-            "--model",      embed_params["model"],
-            "--chroma-dir", str(CHROMA_DIR),
-        ]
-
-        embed_main.main()
-
-    # 4. Evaluate the retriever
-    print("=== Evaluation ===")
-    df = pd.read_csv(CSV_PATH)
-    df = df.rename(columns={"שאלה": "question", "סימן": "siman", "סעיף": "seif"})
-    required = {"question", "siman", "seif"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Eval CSV missing required columns: {missing}")
-
-    max_q = evaluation_params.get("max_questions")
-    if max_q is not None:
-        df = df.head(int(max_q))
-
-    eval_type = evaluation_params["type"]
-    retriever = get_retriever("chroma", type_text=None, chroma_dir=CHROMA_DIR)
-    evaluator = get_evaluator(eval_type, **evaluation_params)
-
-    result      = evaluator.evaluate(retriever, df)
-    report_text = evaluator.format_report(result, retriever_name=retriever.name)
-
-    print(report_text)
-
-    ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
-    stem    = f"eval_{evaluator.name}_{retriever.name}_{ts}"
-    out_dir = (HERE / "data" / "eval" / "results").resolve()
-    saved   = evaluator.save(result, report_text, out_dir, stem)
-    print(f"Saved: {saved['txt']}\n       {saved['json']}")
-
-    print("Ready.\n")
-
-    
+    _run_eval()
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# """
-# main.py — RAG app template (YAML config)
-# ========================================
-# Loads all pipeline settings from config/config.yaml and runs an
-# interactive query loop over the Shulchan Arukh corpus.
-
-# All settings come from the YAML config (model, chunks file, top_k, etc.).
-# To change anything, edit config/config.yaml or point CONFIG_PATH below
-# at a different config file.
-# """
-
-# import logging
-# import sys
-# from datetime import datetime
-# from pathlib import Path
-# import yaml
-# import json
-# import pandas as pd
-
-
-# sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-# from chunker.chunker import load_schema, build_tables
-# from embedder import embed as embed_main
-# from retrievers import get_retriever
-# from evaluation import get_evaluator
-
-# # ─── Load config ──────────────────────────────────────────────────────────────
-
-# #HERE        = Path(__file__).parent
-# #CONFIG_PATH = HERE / "config" / "config.yaml"
-# ROOT = Path(__file__).resolve().parent.parent
-# HERE = ROOT
-# CONFIG_PATH = ROOT / "config" / "config.yaml"
-
-# with open(CONFIG_PATH, encoding="utf-8") as f:
-#     cfg = yaml.safe_load(f)
-# print("CONFIG_PATH:", CONFIG_PATH)
-# print("retrieval from yaml:", cfg["retrieval"])
-
-# # Logging
-# logging.basicConfig(
-#     level=getattr(logging, cfg.get("log_level", "INFO").upper()),
-#     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-#     datefmt="%H:%M:%S",
-# )
-# log = logging.getLogger("main")
-
-# # Paths (resolved against this file's directory)
-# DATA_FILE      = (HERE / cfg["paths"]["data_file"]).resolve()
-# CSV_PATH       = (HERE / cfg["paths"]["csv_path"]).resolve()
-# CHUNKS_JSON    = (HERE / cfg["paths"]["chunks_json"]).resolve()
-# EMBEDDINGS_NPY = (HERE / cfg["paths"]["embeddings_file"]).resolve()
-
-# # Per-stage param dicts
-# chunker_params    = cfg["chunker"]
-# embed_params      = cfg["embeddings"]
-# retrieval_params  = cfg["retrieval"]
-# evaluation_params = cfg["evaluation"]
-
-
-
-# # ─── Entry point ──────────────────────────────────────────────────────────────
-
-# def main():
-    
-    
-#     log.info(f"Config:     {CONFIG_PATH}")
-#     log.info(f"Data file:  {DATA_FILE}")
-#     log.info(f"Chunks:     {CHUNKS_JSON}")
-#     log.info(f"Embeddings: {EMBEDDINGS_NPY}")
-#     log.info(f"Eval CSV:   {CSV_PATH}")
-#     log.info(f"Model:      {embed_params['model']}")
-    
-    
-#     # 1. Load JSON
-#     schema = load_schema(DATA_FILE)
-
-#     # 2. Build chunks
-#     tables = build_tables(schema)
-
-#     # 3. Save to file (chunks.json)
-#     with open(CHUNKS_JSON, "w", encoding="utf-8") as f:
-#         json.dump(tables, f, ensure_ascii=False, indent=2)
-
-#     print("Chunks built and saved")
-    
-#     sys.argv = [
-#     "embed.py",
-#     "--chunks", str(CHUNKS_JSON),
-#     "--model", embed_params["model"],
-# ]
-
-#     embed_main.main()
-
-#     # 4. Evaluate the retriever
-#     print("=== Evaluation ===")
-#     df = pd.read_csv(CSV_PATH)
-#     required = {"question", "siman", "seif"}
-#     missing = required - set(df.columns)
-#     if missing:
-#         raise ValueError(f"Eval CSV missing required columns: {missing}")
-
-#     max_q = evaluation_params.get("max_questions")
-#     if max_q is not None:
-#         df = df.head(int(max_q))
-
-#     eval_type = evaluation_params["type"]
-#     retriever = get_retriever("chroma", type_text=None)
-#     evaluator = get_evaluator(eval_type, **evaluation_params)
-
-#     result      = evaluator.evaluate(retriever, df)
-#     report_text = evaluator.format_report(result, retriever_name=retriever.name)
-
-#     print(report_text)
-
-#     ts      = datetime.now().strftime("%Y%m%d_%H%M%S")
-#     stem    = f"eval_{evaluator.name}_{retriever.name}_{ts}"
-#     out_dir = (HERE / "data" / "eval" / "results").resolve()
-#     saved   = evaluator.save(result, report_text, out_dir, stem)
-#     print(f"Saved: {saved['txt']}\n       {saved['json']}")
-
-#     print("Ready.\n")
-
-    
-
-
-# if __name__ == "__main__":
-#     main()

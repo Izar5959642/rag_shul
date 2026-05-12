@@ -21,11 +21,21 @@ rebuild: &rebuild false
 log_level: INFO   # DEBUG / INFO / WARNING / ERROR / CRITICAL
 
 paths:
-  data_file_without_additional_breadcrumb: "data/processed/shulchan_aruch_rag.json"
-  data_file_with_breadcrumb: data/processed/shulchan_aruch_rag_with_breadcrumb.json
+  # --- stage 0: data generation ---
+  source_txt:      "data/source_original/data_fixed.txt"                # raw Torat Emet text (input)
+  headings_txt:    "data/source_original/Shulchan_Aruch_Text_Headlines.txt" # table of contents (input)
+  summaries_cache: "data/seif_modern_summary_cache.json"                # pre-generated GPT summaries (input)
+  questions_cache: "data/seif_questions_gpt_cache.json"                 # pre-generated GPT questions (input)
+  data_file_without_additional_breadcrumb: "data/processed/shulchan_aruch_rag.json"  # build_rag output
+  data_file_with_breadcrumb: data/processed/shulchan_aruch_rag_with_breadcrumb.json  # final stage-0 artifact (enrich → breadcrumb)
+  # --- stage 1: chunking ---
   chunks_json: &chunk_file "data/chunks.json"
   embeddings_file:  &embeddings_file "data/embeddings.npy"
-  csv_path: "data/eval/sa_eval.csv" # benchmark questions (real CSV)
+  # --- stage 2: embedding ---
+  chroma_dir: "embedder/chroma_db_ver_2"   # overridable via env CHROMA_DIR
+  # --- stage 3: evaluation ---
+  csv_path: "data/eval/sa_eval.csv"        # benchmark questions (real CSV)
+  eval_results_dir: "data/eval/results"    # where eval reports are saved
  
 chunker:
   #run_mode: *run_mode
@@ -90,18 +100,46 @@ chunker:
     - type_text: hagah_only
       chunk_fields: [hagah]
       siman_fields: []
-    - type_text: text+hagah
-      chunk_fields: [text, hagah]
-      siman_fields: []
-    - type_text: text_only
-      chunk_fields: [text]
-      siman_fields: []
+
+    - type_text: siman_sign+hagah
+      chunk_fields: [hagah]
+      siman_fields: [siman_sign]
+
+    # --- text + hilchot_group (single-field combo) ---
     - type_text: text+hilchot_group
       chunk_fields: [text]
       siman_fields: [hilchot_group]
+
+    # --- modern_summary only ---
     - type_text: modern_summary
       chunk_fields: [modern_summary]
       siman_fields: []
+
+    # --- modern_summary with breadcrumb ---
+    - type_text: hilchot_group+siman_sign+modern_summary
+      chunk_fields: [modern_summary]
+      siman_fields: [hilchot_group, siman_sign]
+
+    - type_text: hilchot_group+modern_summary
+      chunk_fields: [modern_summary]
+      siman_fields: [hilchot_group]
+
+    - type_text: siman_sign+modern_summary
+      chunk_fields: [modern_summary]
+      siman_fields: [siman_sign]
+
+    # --- modern_summary combined with text / hagah ---
+    - type_text: text+modern_summary
+      chunk_fields: [text, modern_summary]
+      siman_fields: []
+
+    - type_text: text+hagah+modern_summary
+      chunk_fields: [text, hagah, modern_summary]
+      siman_fields: []
+
+    - type_text: hilchot_group+siman_sign+text+hagah+modern_summary
+      chunk_fields: [text, hagah, modern_summary]
+      siman_fields: [hilchot_group, siman_sign]
 
 embeddings:
   #run_mode: *run_mode

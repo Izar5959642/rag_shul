@@ -196,7 +196,46 @@ def store_in_chroma(
     print(f"  ChromaDB path: {chroma_dir}")
 
 
-# ─── Entry point ────────────────────────────────────────────────────────────────
+# ─── Programmatic entry point ───────────────────────────────────────────────────
+
+def run(
+    chunks_json: Path,
+    chroma_dir: Path,
+    model: str = DEFAULT_MODEL,
+    collection: str = DEFAULT_COLLECTION,
+    batch_size: int = BATCH_SIZE,
+) -> None:
+    """Embed all tables from chunks_json into ChromaDB. Skips already-embedded variants."""
+    print(f"\n1. Loading tables from {chunks_json.name}...")
+    tables = load_tables(chunks_json)
+
+    print("\n2. Checking existing embeddings in ChromaDB...")
+    already_done = get_existing_type_texts(chroma_dir, collection)
+    tables_to_embed = [(t, c) for t, c in tables if t not in already_done]
+    for t, _ in tables:
+        status = "SKIP (already exists)" if t in already_done else "will embed"
+        print(f"  [{t}]  {status}")
+
+    if not tables_to_embed:
+        print("\nAll tables already embedded. Nothing to do.")
+        return
+
+    print(f"\n3. Loading model: {model}")
+    model_obj = _get_model(model)
+    print(f"   Vector dim: {model_obj.get_sentence_embedding_dimension()}")
+
+    all_tables = []
+    for type_text, chunks in tables_to_embed:
+        print(f"\nEmbedding [{type_text}]...")
+        texts   = build_encoding_texts(chunks)
+        vectors = embed(model_obj, texts, batch_size=batch_size)
+        all_tables.append((type_text, chunks, vectors))
+
+    print("\nStoring in ChromaDB...")
+    store_in_chroma(all_tables, chroma_dir, collection)
+
+
+# ─── CLI entry point ─────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="Embed Shulchan Arukh chunks into ChromaDB")
