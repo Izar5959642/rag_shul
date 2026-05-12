@@ -17,7 +17,7 @@
 # Run mode: full = real data | mini = small smoke-test data
 # Can also be overridden on the command line: --mode full / --mode mini
 #run_mode: &run_mode quick        # quick | full | mini
-rebuild: &rebuild true
+rebuild: &rebuild false
 log_level: INFO   # DEBUG / INFO / WARNING / ERROR / CRITICAL
 
 paths:
