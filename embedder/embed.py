@@ -137,6 +137,9 @@ def get_existing_type_texts(chroma_dir: Path, collection_name: str) -> set[str]:
     """
     Return the set of type_text values already stored in the collection.
     Returns an empty set if the collection does not exist.
+
+    Paginated to stay under SQLite's parameter limit on large collections
+    (a single col.get() over ~80k+ records hits "too many SQL variables").
     """
     client = chromadb.PersistentClient(path=str(chroma_dir))
     existing = [c.name for c in client.list_collections()]
@@ -144,8 +147,17 @@ def get_existing_type_texts(chroma_dir: Path, collection_name: str) -> set[str]:
         return set()
 
     col = client.get_collection(collection_name)
-    result = col.get(include=["metadatas"])
-    return {m["type_text"] for m in result["metadatas"] if "type_text" in m}
+
+    all_variants: set[str] = set()
+    offset, batch = 0, 5000
+    while True:
+        page = col.get(include=["metadatas"], limit=batch, offset=offset)
+        metadatas = page["metadatas"]
+        if not metadatas:
+            break
+        all_variants.update(m["type_text"] for m in metadatas if "type_text" in m)
+        offset += batch
+    return all_variants
 
 
 def store_in_chroma(
