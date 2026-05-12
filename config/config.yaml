@@ -42,20 +42,63 @@ chunker:
   siman_fields:         # ordered list of siman-level fields to prepend to each chunk
     - hilchot_group
     # - siman_sign
-  text_variants:        # list of named text-build configs; each produces one table in the output
+
+  text_variants: # list of named text-build configs; each produces one table in the output
+    # --- full context ---
     - type_text: hilchot_group+siman_sign+text+hagah
       chunk_fields: [text, hagah]
-      siman_fields: [hilchot_group, siman_sign] 
+      siman_fields: [hilchot_group, siman_sign]
 
-    # - type_text: text+hagah
-    #   chunk_fields: [text, hagah]
-    #   siman_fields: []
-    # - type_text: text_only
-    #   chunk_fields: [text]
-    #   siman_fields: []
-    # - type_text: text+hilchot_group
-    #   chunk_fields: [text]
-    #   siman_fields: [hilchot_group]
+    - type_text: hilchot_group+text+hagah
+      chunk_fields: [text, hagah]
+      siman_fields: [hilchot_group]
+
+    - type_text: siman_sign+text+hagah
+      chunk_fields: [text, hagah]
+      siman_fields: [siman_sign]
+
+    - type_text: text+hagah
+      chunk_fields: [text, hagah]
+      siman_fields: []
+
+    # --- text only (no hagah) ---
+    - type_text: hilchot_group+siman_sign+text
+      chunk_fields: [text]
+      siman_fields: [hilchot_group, siman_sign]
+
+    - type_text: hilchot_group+text
+      chunk_fields: [text]
+      siman_fields: [hilchot_group]
+
+    - type_text: siman_sign+text
+      chunk_fields: [text]
+      siman_fields: [siman_sign]
+
+    - type_text: text_only
+      chunk_fields: [text]
+      siman_fields: []
+
+    # --- hagah (Rema) only ---
+    - type_text: hilchot_group+siman_sign+hagah
+      chunk_fields: [hagah]
+      siman_fields: [hilchot_group, siman_sign]
+
+    - type_text: hilchot_group+hagah
+      chunk_fields: [hagah]
+      siman_fields: [hilchot_group]
+
+    - type_text: hagah_only
+      chunk_fields: [hagah]
+      siman_fields: []
+    - type_text: text+hagah
+      chunk_fields: [text, hagah]
+      siman_fields: []
+    - type_text: text_only
+      chunk_fields: [text]
+      siman_fields: []
+    - type_text: text+hilchot_group
+      chunk_fields: [text]
+      siman_fields: [hilchot_group]
 
 embeddings:
   #run_mode: *run_mode
