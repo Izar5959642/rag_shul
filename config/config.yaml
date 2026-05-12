@@ -99,6 +99,9 @@ chunker:
     - type_text: text+hilchot_group
       chunk_fields: [text]
       siman_fields: [hilchot_group]
+    - type_text: modern_summary
+      chunk_fields: [modern_summary]
+      siman_fields: []
 
 embeddings:
   #run_mode: *run_mode
