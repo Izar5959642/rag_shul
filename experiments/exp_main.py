@@ -27,6 +27,7 @@ from build_shulchan_aruch_rag import process_file as _build_rag
 from enrich_with_modern_summary import process as _enrich_rag
 from add_breadcrumb_to_json import process as _add_breadcrumb
 
+
 from chunker.chunker import run as _run_chunker
 from embedder.embed import run as _run_embed
 from retrievers import get_retriever
