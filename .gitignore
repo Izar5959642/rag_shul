@@ -22,6 +22,7 @@ experiments/*/results.csv
 
 # ─── Test data / evaluation questions ────────────────────────────────────────
 *.xlsx
+data/eval/query_texts.json
 
 # ─── Secrets ─────────────────────────────────────────────────────────────────
 .env

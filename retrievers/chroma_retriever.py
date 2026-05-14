@@ -170,3 +170,8 @@ class ChromaRetriever(BaseRetriever):
         self._load()
         vec = encode_query(query, model=self._model, prefix_query=self._prefix_query)
         return {variant: self._query_variant(variant, vec, top_k) for variant in self._variants}
+
+    def retrieve_by_variant_vec(self, vec, top_k: int = 10) -> dict[str, list[dict]]:
+        """Like retrieve_by_variant but takes a pre-computed embedding vector."""
+        self._load()
+        return {variant: self._query_variant(variant, vec, top_k) for variant in self._variants}

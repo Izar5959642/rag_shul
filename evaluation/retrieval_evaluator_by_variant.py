@@ -8,8 +8,12 @@ ChromaRetriever.retrieve_by_variant(). A "hit" is a result whose
 Standalone — does not import anything from evaluation.retrieval_evaluator.
 """
 
+import json
 import time
 from datetime import datetime
+from pathlib import Path
+
+import numpy as np
 
 try:
     from tqdm import tqdm
@@ -67,7 +71,8 @@ class RetrievalEvaluatorByVariant(BaseEvaluator):
     def name(self) -> str:
         return "retrieval_by_variant"
 
-    def __init__(self, k_values=None, retrieve_k=None, **_unused):
+    def __init__(self, k_values=None, retrieve_k=None,
+                 query_embeddings_npy=None, query_texts_json=None, **_unused):
         """
         Args from YAML (evaluation section):
             k_values:   list of K values to evaluate (or None = default)
@@ -79,22 +84,50 @@ class RetrievalEvaluatorByVariant(BaseEvaluator):
         self.k_values   = sorted(set(k_values)) if k_values else list(DEFAULT_K_VALUES)
         max_k           = max(self.k_values)
         self.retrieve_k = max(retrieve_k or max_k, max_k)
+        self._emb_cache  = Path(query_embeddings_npy) if query_embeddings_npy else None
+        self._text_cache = Path(query_texts_json)     if query_texts_json     else None
 
     def evaluate(self, retriever, queries_df, **kwargs) -> dict:
+        questions = [str(getattr(row, "question")) for row in queries_df.itertuples(index=False)]
+
+        # Load or build query embedding cache
+        cached_vecs = None
+        if self._emb_cache and self._text_cache:
+            if self._emb_cache.exists() and self._text_cache.exists():
+                cached_qs = json.loads(self._text_cache.read_text(encoding="utf-8"))
+                if cached_qs == questions:
+                    cached_vecs = np.load(str(self._emb_cache))
+                    print(f"Loaded {len(cached_vecs)} query embeddings from cache ({self._emb_cache.name})")
+            if cached_vecs is None:
+                retriever._load()
+                texts = [retriever._prefix_query + q for q in questions]
+                print(f"Encoding {len(texts)} queries (will cache to {self._emb_cache.name})...")
+                cached_vecs = retriever._model.encode(
+                    texts, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=True
+                )
+                np.save(str(self._emb_cache), cached_vecs)
+                self._text_cache.write_text(
+                    json.dumps(questions, ensure_ascii=False), encoding="utf-8"
+                )
+                print(f"Saved query embedding cache -> {self._emb_cache}")
+
         ranks_by_variant: dict[str, list] = {}
         t_start = time.perf_counter()
 
         iterator = tqdm(
-            queries_df.itertuples(index=False),
+            enumerate(queries_df.itertuples(index=False)),
             total=len(queries_df),
             desc="ByVariant",
             unit="q",
         )
-        for row in iterator:
+        for i, row in iterator:
             query    = str(getattr(row, "question"))
             gt_siman = int(getattr(row, "siman"))
             gt_seif  = int(getattr(row, "seif"))
-            per_variant = retriever.retrieve_by_variant(query, top_k=self.retrieve_k)
+            if cached_vecs is not None:
+                per_variant = retriever.retrieve_by_variant_vec(cached_vecs[i], top_k=self.retrieve_k)
+            else:
+                per_variant = retriever.retrieve_by_variant(query, top_k=self.retrieve_k)
             for variant, results in per_variant.items():
                 rank = next(
                     (r["rank"] for r in results

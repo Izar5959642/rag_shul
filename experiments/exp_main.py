@@ -70,8 +70,10 @@ _chroma_env = os.environ.get("CHROMA_DIR")
 CHROMA_DIR  = Path(_chroma_env) if _chroma_env else _p("chroma_dir")
 
 # Stage 3 — evaluation
-CSV_PATH        = _p("csv_path")
+CSV_PATH         = _p("csv_path")
 EVAL_RESULTS_DIR = _p("eval_results_dir")
+QUERY_EMB_NPY    = _p("query_embeddings_npy")
+QUERY_TEXTS_JSON = _p("query_texts_json")
 
 # Per-stage param dicts
 chunker_params    = cfg["chunker"]
@@ -112,6 +114,8 @@ def _build_embed_stage() -> None:
 def _run_eval() -> None:
     print("=== Stage 3: Evaluation ===")
     retriever = get_retriever("chroma", type_text=None, chroma_dir=CHROMA_DIR)
+    evaluation_params["query_embeddings_npy"] = str(QUERY_EMB_NPY)
+    evaluation_params["query_texts_json"]     = str(QUERY_TEXTS_JSON)
     _run_evaluation(
         retriever=retriever,
         csv_path=CSV_PATH,
@@ -154,7 +158,7 @@ def main() -> None:
     # via get_existing_type_texts(), which also covers the "added a new variant" case.
     _build_embed_stage()
 
-    # _run_eval()
+    _run_eval()
 
 
 if __name__ == "__main__":
