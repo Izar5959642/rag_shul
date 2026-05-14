@@ -85,7 +85,7 @@ chunker:
       siman_fields: [hilchot_group]
 ```
 
-When `text_variants` is present, `build_tables` is called and the output contains one table per variant. Each variant can supply its own `chunk_fields`, `siman_fields`, and `mode`; any key omitted from a variant falls back to the corresponding top-level config value.
+When `text_variants` is present, `build_tables` is called and the output contains one table per variant. Each variant can supply its own `chunk_fields`, `siman_fields`, and `mode`. If `chunk_fields` or `mode` is omitted from a variant, it falls back to the top-level config value. If `siman_fields` is omitted, it defaults to `[]` (no siman-level prefix).
 
 | Mode | Description |
 |---|---|
@@ -101,7 +101,7 @@ When `text_variants` is present, `build_tables` is called and the output contain
 python3 -m chunker.main
 ```
 
-All paths are read from `config/config.yaml` (`paths.schema_json`, `paths.chunks_json`).
+All paths are read from `config/config.yaml` (`paths.chunks_json` for output; input defaults to `data/processed/shulchan_aruch_rag.json` unless overridden by a `schema_json` key under the active `run_mode` paths).
 
 ---
 

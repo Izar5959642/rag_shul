@@ -32,7 +32,7 @@ paths:
   chunks_json: &chunk_file "data/chunks.json"
   embeddings_file:  &embeddings_file "data/embeddings.npy"
   # --- stage 2: embedding ---
-  chroma_dir: "embedder/chroma_db_ver_2"   # overridable via env CHROMA_DIR
+  chroma_dir: "embedder/chroma_db_ver_20_tables/chroma_db_ver_2"   # overridable via env CHROMA_DIR
   # --- stage 3: evaluation ---
   csv_path: "data/eval/sa_eval.csv"        # benchmark questions (real CSV)
   eval_results_dir: "data/eval/results"    # where eval reports are saved
@@ -139,6 +139,41 @@ chunker:
 
     - type_text: hilchot_group+siman_sign+text+hagah+modern_summary
       chunk_fields: [text, hagah, modern_summary]
+      siman_fields: [hilchot_group, siman_sign]
+
+    # --- questions only ---
+    - type_text: questions_only
+      chunk_fields: [questions]
+      siman_fields: []
+
+    - type_text: hilchot_group+siman_sign+questions
+      chunk_fields: [questions]
+      siman_fields: [hilchot_group, siman_sign]
+
+    - type_text: hilchot_group+questions
+      chunk_fields: [questions]
+      siman_fields: [hilchot_group]
+
+    - type_text: siman_sign+questions
+      chunk_fields: [questions]
+      siman_fields: [siman_sign]
+
+    # --- questions combined with text ---
+    - type_text: text+questions
+      chunk_fields: [text, questions]
+      siman_fields: []
+
+    - type_text: hilchot_group+siman_sign+text+questions
+      chunk_fields: [text, questions]
+      siman_fields: [hilchot_group, siman_sign]
+
+    # --- questions combined with text+hagah ---
+    - type_text: text+hagah+questions
+      chunk_fields: [text, hagah, questions]
+      siman_fields: []
+
+    - type_text: hilchot_group+siman_sign+text+hagah+questions
+      chunk_fields: [text, hagah, questions]
       siman_fields: [hilchot_group, siman_sign]
 
 embeddings:

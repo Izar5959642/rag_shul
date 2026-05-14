@@ -34,14 +34,25 @@ def load_schema(json_path: str | Path) -> dict:
         return json.load(f)
 
 
+def _field_text(val) -> str:
+    """Normalize a field value: join lists to a single string."""
+    if isinstance(val, list):
+        return " ".join(str(v) for v in val if v)
+    return val or ""
+
+
+def _get_parts(data: dict, fields: list[str]) -> list[str]:
+    return [t for f in fields if (t := _field_text(data.get(f)))]
+
+
 def _build_seif_chunks(schema: dict, chunk_fields: list[str], siman_fields: list[str]) -> list[dict]:
     rows = []
     for siman_data in schema["simanim"]:
         siman_num = siman_data["siman"]
-        siman_parts = [siman_data.get(f) for f in siman_fields if siman_data.get(f)]
+        siman_parts = _get_parts(siman_data, siman_fields)
         for seif_data in siman_data["seifim"]:
             seif_num = seif_data["seif"]
-            seif_parts = [seif_data.get(f) for f in chunk_fields if seif_data.get(f)]
+            seif_parts = _get_parts(seif_data, chunk_fields)
             rows.append({
                 "siman":      siman_num,
                 "seif":       seif_num,
@@ -55,10 +66,10 @@ def _build_siman_chunks(schema: dict, chunk_fields: list[str], siman_fields: lis
     rows = []
     for siman_data in schema["simanim"]:
         siman_num = siman_data["siman"]
-        siman_parts = [siman_data.get(f) for f in siman_fields if siman_data.get(f)]
+        siman_parts = _get_parts(siman_data, siman_fields)
         seif_parts = []
         for seif_data in siman_data["seifim"]:
-            seif_parts += [seif_data.get(f) for f in chunk_fields if seif_data.get(f)]
+            seif_parts += _get_parts(seif_data, chunk_fields)
         rows.append({
             "siman":      siman_num,
             "seif":       None,
@@ -78,12 +89,12 @@ def _build_sliding_window_chunks(schema: dict, chunk_fields: list[str], siman_fi
     word_siman: list[int] = []
     for siman_data in schema["simanim"]:
         siman_num = siman_data["siman"]
-        siman_parts = [siman_data.get(f) for f in siman_fields if siman_data.get(f)]
+        siman_parts = _get_parts(siman_data, siman_fields)
         siman_prefix_words = " ".join(siman_parts).split() if siman_parts else []
         all_words.extend(siman_prefix_words)
         word_siman.extend([siman_num] * len(siman_prefix_words))
         for seif_data in siman_data["seifim"]:
-            parts = [seif_data.get(f) for f in chunk_fields if seif_data.get(f)]
+            parts = _get_parts(seif_data, chunk_fields)
             words = " ".join(parts).split()
             all_words.extend(words)
             word_siman.extend([siman_num] * len(words))

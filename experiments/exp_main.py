@@ -154,7 +154,7 @@ def main() -> None:
     # via get_existing_type_texts(), which also covers the "added a new variant" case.
     _build_embed_stage()
 
-    _run_eval()
+    # _run_eval()
 
 
 if __name__ == "__main__":
