@@ -90,51 +90,61 @@ class RetrievalEvaluatorByVariant(BaseEvaluator):
     def evaluate(self, retriever, queries_df, **kwargs) -> dict:
         questions = [str(getattr(row, "question")) for row in queries_df.itertuples(index=False)]
 
-        # Load or build query embedding cache
-        cached_vecs = None
-        if self._emb_cache and self._text_cache:
-            if self._emb_cache.exists() and self._text_cache.exists():
-                cached_qs = json.loads(self._text_cache.read_text(encoding="utf-8"))
-                if cached_qs == questions:
-                    cached_vecs = np.load(str(self._emb_cache))
-                    print(f"Loaded {len(cached_vecs)} query embeddings from cache ({self._emb_cache.name})")
-            if cached_vecs is None:
-                retriever._load()
-                texts = [retriever._prefix_query + q for q in questions]
-                print(f"Encoding {len(texts)} queries (will cache to {self._emb_cache.name})...")
-                cached_vecs = retriever._model.encode(
-                    texts, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=True
-                )
-                np.save(str(self._emb_cache), cached_vecs)
+        # Ground truth pre-extracted once
+        gt_rows = [
+            (int(getattr(row, "siman")), int(getattr(row, "seif")))
+            for row in queries_df.itertuples(index=False)
+        ]
+
+        # Step 1 — get query embeddings. Load from disk if the cache exists and matches;
+        # otherwise encode in-memory (and save the cache if paths are configured).
+        query_vecs = None
+        if (
+            self._emb_cache and self._text_cache
+            and self._emb_cache.exists() and self._text_cache.exists()
+        ):
+            cached_qs = json.loads(self._text_cache.read_text(encoding="utf-8"))
+            if cached_qs == questions:
+                query_vecs = np.load(str(self._emb_cache))
+                print(f"Loaded {len(query_vecs)} query embeddings from cache ({self._emb_cache.name})")
+
+        if query_vecs is None:
+            retriever._load()
+            texts = [retriever._prefix_query + q for q in questions]
+            print(f"Encoding {len(texts)} queries...")
+            query_vecs = retriever._model.encode(
+                texts, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=True
+            )
+            if self._emb_cache and self._text_cache:
+                np.save(str(self._emb_cache), query_vecs)
                 self._text_cache.write_text(
                     json.dumps(questions, ensure_ascii=False), encoding="utf-8"
                 )
                 print(f"Saved query embedding cache -> {self._emb_cache}")
 
+        # Step 2 — variant-first batched eval, one variant at a time (keeps memory bounded).
         ranks_by_variant: dict[str, list] = {}
         t_start = time.perf_counter()
 
-        iterator = tqdm(
-            enumerate(queries_df.itertuples(index=False)),
-            total=len(queries_df),
-            desc="ByVariant",
-            unit="q",
+        retriever._load_collection()
+        print(
+            f"Running batched evaluation "
+            f"({len(retriever._variants)} variants × {len(questions)} queries)..."
         )
-        for i, row in iterator:
-            query    = str(getattr(row, "question"))
-            gt_siman = int(getattr(row, "siman"))
-            gt_seif  = int(getattr(row, "seif"))
-            if cached_vecs is not None:
-                per_variant = retriever.retrieve_by_variant_vec(cached_vecs[i], top_k=self.retrieve_k)
-            else:
-                per_variant = retriever.retrieve_by_variant(query, top_k=self.retrieve_k)
-            for variant, results in per_variant.items():
+        for variant in tqdm(retriever._variants, desc="Variants", unit="variant"):
+            variant_results = retriever._query_variant_batch(
+                variant, query_vecs, top_k=self.retrieve_k
+            )
+            ranks: list = []
+            for i, (gt_siman, gt_seif) in enumerate(gt_rows):
                 rank = next(
-                    (r["rank"] for r in results
+                    (r["rank"] for r in variant_results[i]
                      if r["siman"] == gt_siman and r["seif"] == gt_seif),
                     None,
                 )
-                ranks_by_variant.setdefault(variant, []).append(rank)
+                ranks.append(rank)
+            ranks_by_variant[variant] = ranks
+            # variant_results goes out of scope here -> GC reclaims before the next variant.
 
         elapsed_sec = time.perf_counter() - t_start
 

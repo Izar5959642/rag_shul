@@ -82,12 +82,10 @@ class ChromaRetriever(BaseRetriever):
         self._collection = None
         self._variants: list[str] | None = None
 
-    def _load(self) -> None:
-        """Lazy load — happens once per instance."""
-        if self._model is not None:
+    def _load_collection(self) -> None:
+        """Lazy load ChromaDB collection and variants (no model needed)."""
+        if self._collection is not None:
             return
-
-        self._model = _get_model(self._model_name)
 
         client = chromadb.PersistentClient(path=str(self._chroma_dir))
         self._collection = client.get_collection(self._collection_name)
@@ -111,6 +109,13 @@ class ChromaRetriever(BaseRetriever):
             self._variants = [self._type_text]
         else:
             self._variants = list(self._type_text)
+
+    def _load(self) -> None:
+        """Lazy load model + collection (needed when encoding queries on the fly)."""
+        if self._model is not None:
+            return
+        self._model = _get_model(self._model_name)
+        self._load_collection()
 
     def _query_variant(self, variant: str, vec, top_k: int) -> list[dict]:
         """Run one ChromaDB query for a single variant and return ranked result dicts."""
@@ -173,5 +178,44 @@ class ChromaRetriever(BaseRetriever):
 
     def retrieve_by_variant_vec(self, vec, top_k: int = 10) -> dict[str, list[dict]]:
         """Like retrieve_by_variant but takes a pre-computed embedding vector."""
-        self._load()
+        self._load_collection()
         return {variant: self._query_variant(variant, vec, top_k) for variant in self._variants}
+
+    def _query_variant_batch(
+        self, variant: str, vecs, top_k: int, chunk_size: int = 50
+    ) -> list[list[dict]]:
+        """Batched query for a single variant.
+
+        Chunks the query vectors internally so ChromaDB's underlying SQLite
+        query stays under the parameter cap (same class of issue paginated
+        around in `_load_collection`). Public API is unchanged: caller passes
+        one (N, dim) array and gets back a list of N ranked-result-lists.
+        """
+        results: list[list[dict]] = []
+        for start in range(0, len(vecs), chunk_size):
+            vec_chunk = vecs[start:start + chunk_size]
+            raw = self._collection.query(
+                query_embeddings=vec_chunk.tolist(),
+                n_results=top_k,
+                where={"type_text": variant},
+                include=["documents", "metadatas", "distances"],
+            )
+            for ids, documents, metadatas, distances in zip(
+                raw["ids"], raw["documents"], raw["metadatas"], raw["distances"]
+            ):
+                results.append([
+                    {
+                        "rank":         rank,
+                        "chunk_id":     chunk_id,
+                        "score":        round(1.0 - dist, 4),
+                        "text":         doc,
+                        "siman_parent": int(meta["siman"]),
+                        "siman":        int(meta["siman"]),
+                        "seif":         int(meta["seif"]),
+                        "type_text":    meta["type_text"],
+                    }
+                    for rank, (chunk_id, doc, meta, dist) in enumerate(
+                        zip(ids, documents, metadatas, distances), start=1
+                    )
+                ])
+        return results

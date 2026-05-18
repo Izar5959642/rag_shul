@@ -85,7 +85,7 @@ def build_encoding_texts(chunks: list[dict], prefix_passage: str = "passage: ") 
     E5 models require "passage: " prefix for corpus texts.
     """
     return [
-        prefix_passage + "שולחן ערוך אורח חיים, " + row["siman_seif"] + ": " + row["text"]
+        prefix_passage + row["text"]
         for row in chunks
     ]
 
@@ -234,8 +234,7 @@ def run(
 
     print(f"\n3. Loading model: {model}")
     model_obj = _get_model(model)
-    print(f"   Vector dim: {model_obj.get_sentence_embedding_dimension()}")
-
+    print(f"   Vector dim: {model_obj.get_embedding_dimension()}")
     all_tables = []
     for type_text, chunks in tables_to_embed:
         print(f"\nEmbedding [{type_text}]...")

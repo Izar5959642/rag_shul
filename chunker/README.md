@@ -17,7 +17,14 @@ JSON file with this structure (`data/processed/shulchan_aruch_rag_with_breadcrum
       "hilchot_group": "...",
       "siman_sign": "...",
       "seifim": [
-        { "seif": 1, "text": "...", "hagah": "...", "text_raw": "..." }
+        {
+          "seif": 1,
+          "text": "...",
+          "hagah": "...",
+          "text_raw": "...",
+          "modern_summary": "...",
+          "questions": ["...", "...", "..."]
+        }
       ]
     }
   ]
@@ -25,8 +32,8 @@ JSON file with this structure (`data/processed/shulchan_aruch_rag_with_breadcrum
 ```
 
 - `hilchot_group`, `siman_sign` — siman-level fields, configurable via `siman_fields`
-- `text`, `hagah`, `text_raw` — seif-level fields, configurable via `chunk_fields`
-- `hagah` may be `null`; null fields are silently skipped
+- `text`, `hagah`, `text_raw`, `modern_summary`, `questions` — seif-level fields, configurable via `chunk_fields`
+- list-valued fields (e.g. `questions`) are joined with spaces; `hagah` may be `null`; null/empty fields are silently skipped
 
 ---
 
@@ -73,6 +80,8 @@ chunker:
     # - hilchot_group   # uncomment to prepend the halachic category
     # - siman_sign      # uncomment to prepend the siman sign/marker
   text_variants:        # optional; if present, overrides single-mode output
+    # 28 variants live in config/config.yaml (chunker.text_variants); these are
+    # representative examples — see the config for the full list.
     - type_text: text+hagah          # label for this table
       chunk_fields: [text, hagah]
       siman_fields: []
@@ -80,9 +89,12 @@ chunker:
     - type_text: text_only
       chunk_fields: [text]
       siman_fields: []
-    - type_text: text+hilchot_group
-      chunk_fields: [text]
-      siman_fields: [hilchot_group]
+    - type_text: text+modern_summary
+      chunk_fields: [text, modern_summary]
+      siman_fields: []
+    - type_text: questions_only
+      chunk_fields: [questions]
+      siman_fields: []
 ```
 
 When `text_variants` is present, `build_tables` is called and the output contains one table per variant. Each variant can supply its own `chunk_fields`, `siman_fields`, and `mode`. If `chunk_fields` or `mode` is omitted from a variant, it falls back to the top-level config value. If `siman_fields` is omitted, it defaults to `[]` (no siman-level prefix).
@@ -101,42 +113,63 @@ When `text_variants` is present, `build_tables` is called and the output contain
 python3 -m chunker.main
 ```
 
-All paths are read from `config/config.yaml` (`paths.chunks_json` for output; input defaults to `data/processed/shulchan_aruch_rag.json` unless overridden by a `schema_json` key under the active `run_mode` paths).
+Manual entry point. Output goes to `paths.chunks_json` from `config/config.yaml`. Input is taken from `paths.schema_json` if set; otherwise it falls back to `data/processed/shulchan_aruch_rag.json` (the non-breadcrumb file). Full-pipeline runs do **not** invoke this CLI — `experiments/exp_main.py` calls `chunker.chunker.run(data_file, chunks_json, variants)` directly with `paths.data_file_with_breadcrumb` as the input.
+
+### Preview
+
+Print sample chunks from the saved output:
+
+```bash
+python3 -m chunker.preview [--file PATH] [--n N]
+```
+
+Defaults: `--file` → `paths.chunks_json`, `--n` → 2 chunks per table.
 
 ---
 
 ## Use as API
 
-**Recommended — read everything from `config.yaml` (no hardcoded paths or overrides):**
+**Recommended — load + build + save in one call (matches what `experiments/exp_main.py` does):**
 
 ```python
-from chunker import build_tables, load_schema
-from chunker.chunker import load_config
-from pathlib import Path
+from chunker.chunker import run
 
-cfg         = load_config()
-schema_path = Path(__file__).parent.parent / cfg["paths"]["schema_json"]
-schema      = load_schema(schema_path)
-
-# builds all variants defined in config.yaml → list of {metadata, data} tables
-tables = build_tables(schema)
+# Reads variants from config.yaml automatically.
+run(
+    data_file="data/processed/shulchan_aruch_rag_with_breadcrumb.json",
+    chunks_json="data/chunks.json",
+)
 ```
 
-Or run the full pipeline (load + build + save) in one call:
+Or use the existing CLI wrapper:
 
 ```python
 import chunker.main as m
 m.main()   # reads input path, output path, and variants from config.yaml
 ```
 
-**For experimentation only — override variants without touching config:**
+**Lower-level — build tables in memory without saving:**
 
 ```python
 from chunker import build_tables, load_schema
+
+schema = load_schema("data/processed/shulchan_aruch_rag_with_breadcrumb.json")
+
+# Uses chunker.text_variants from config.yaml by default.
+tables = build_tables(schema)
+```
+
+**For experimentation only — override variants without touching config:**
+
+```python
+from chunker import build_tables, build_dataframe, load_schema
 
 schema = load_schema("data/processed/shulchan_aruch_rag_with_breadcrumb.json")
 tables = build_tables(schema, variants=[
     {"type_text": "text+hagah",  "chunk_fields": ["text", "hagah"], "siman_fields": []},
     {"type_text": "with_breadcrumb", "chunk_fields": ["text"], "siman_fields": ["hilchot_group"]},
 ])
+
+# Or get a single flat DataFrame instead of the multi-table structure:
+df = build_dataframe(schema, chunk_fields=["text", "hagah"], siman_fields=[], mode="seif")
 ```

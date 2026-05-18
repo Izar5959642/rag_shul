@@ -35,13 +35,16 @@ list[dict]  — ranked results with siman, seif, score, type_text
 
 ### Variants (type_text)
 
-The ChromaDB collection stores 3 text variants, each labeled with `type_text`:
+The ChromaDB collection stores **28 text variants**, each labeled with `type_text`. The full list is defined in `config/config.yaml` under `chunker.text_variants` and built by the chunker (see `chunker/README.md`). Representative sample:
 
 | `type_text` | Content |
 |-------------|---------|
 | `text+hagah` | Original text + Rema commentary |
 | `text_only` | Original text only |
 | `text+hilchot_group` | Original text + halachic category prefix |
+| `text+modern_summary` | Original text + GPT-generated modern summary |
+| `text+questions` | Original text + GPT-generated study questions |
+| …and 23 more | See `chunker.text_variants` in `config/config.yaml` |
 
 ### Usage
 
@@ -56,7 +59,7 @@ results = r.retrieve("מה דין ציצית?", top_k=10)
 r = get_retriever("chroma", type_text=["text+hagah", "text_only"])
 results = r.retrieve("מה דין ציצית?", top_k=10)
 
-# all variants in the collection — top_k per variant (30 total)
+# all variants in the collection — top_k per variant (280 total = 28 × 10)
 r = get_retriever("chroma", type_text=None)
 results = r.retrieve("מה דין ציצית?", top_k=10)
 
@@ -83,17 +86,17 @@ Each result dict contains:
 
 ### retrieve_by_variant() — per-variant output format
 
-`retrieve_by_variant(query, top_k)` returns `dict[str, list[dict]]`.
+`retrieve_by_variant(query, top_k)` returns `dict[str, list[dict]]` — one key per queried variant (up to 28 when `type_text=None`).
 
 Unlike `retrieve()` which concatenates all variants into one flat list, this method
-returns each variant's results separately and independently ranked. Use this for
-evaluation — it avoids the ranking bias introduced by flat concatenation.
+returns each variant's results separately and independently ranked. Use this when
+you want per-variant results without flat concatenation.
 
 **Outer dict:**
 
 | Key | Type | Description |
 |-----|------|-------------|
-| variant name | `str` | e.g. `"text+hagah"`, `"text_only"`, `"text+hilchot_group"` |
+| variant name | `str` | e.g. `"text+hagah"`, `"text_only"`, `"text+modern_summary"` — one entry per queried variant |
 | value | `list[dict]` | top_k result dicts, sorted by score descending. `rank` resets to 1 for each variant. |
 
 **Each result dict** — same fields as `retrieve()`:
@@ -160,6 +163,14 @@ evaluation — it avoids the ranking bias introduced by flat concatenation.
 }
 ```
 
+### retrieve_by_variant_vec() — pre-computed vector variant
+
+```python
+def retrieve_by_variant_vec(self, vec, top_k: int = 10) -> dict[str, list[dict]]:
+```
+
+Same return shape as `retrieve_by_variant`, but takes a pre-computed embedding vector instead of a query string — skips the encode step. Used by the per-variant evaluator, which encodes each query once and reuses the vector across all 28 variants.
+
 ---
 
 ### Parameters
@@ -174,10 +185,10 @@ evaluation — it avoids the ranking bias introduced by flat concatenation.
 
 ### top_k vs retrieve_k
 
-- **`top_k`** — results returned per variant (what the user sees)
-- **`retrieve_k`** — results fetched for evaluation purposes (set in `config.yaml`)
+- **`top_k`** — results returned per variant per call (what the caller asks for).
+- **`retrieve_k`** — set in `config.yaml` under `evaluation.retrieve_k` (default `100`). `RetrievalEvaluatorByVariant.__init__` computes the effective value as `max(retrieve_k or max_k, max_k)` where `max_k = max(k_values)`, so it always covers the largest K used in the Recall@K report.
 
-The evaluator calls `retrieve(query, top_k=retrieve_k)` and deduplicates by `siman_parent` internally.
+The evaluator does **not** call `retrieve()` per query. It calls the private workhorse `_query_variant_batch(variant, query_vecs, top_k=retrieve_k)` **once per variant** with all query vectors batched together. The method chunks the batch internally to stay under ChromaDB's SQLite parameter cap. See `_query_variant_batch` in `chroma_retriever.py` and the call site in `evaluation/retrieval_evaluator_by_variant.py`.
 
 ---
 
